@@ -206,20 +206,22 @@ class DynLaborModelClass(EconModelClass):
         sim = self.sim
 
         # b. loop over individuals and time
-        for i in range(par.simN):
+        for i in range(par.simN): #simN er individder 
 
             # i. initialize states
-            sim.a[i,0] = sim.a_init[i]
-            sim.k[i,0] = sim.k_init[i]
+            sim.a[i,0] = sim.a_init[i] #initialliserer begge til en array af nuller 
+            sim.k[i,0] = sim.k_init[i] #i is the row index, indicating which row of the array is being accessed. 
+            #0 is the column index, indicating the first column of the array.
 
-            for t in range(par.simT):
+            for t in range(par.simT): #simT er antal perioder
 
                 # ii. interpolate optimal consumption and hours
                 sim.c[i,t] = interp_2d(par.a_grid,par.k_grid,sol.c[t],sim.a[i,t],sim.k[i,t])
+                #sol.c refererer til det optimale niveau der er løst for tidligere i koden
                 sim.h[i,t] = interp_2d(par.a_grid,par.k_grid,sol.h[t],sim.a[i,t],sim.k[i,t])
 
                 # iii. store next-period states
-                if t<par.simT-1:
+                if t<par.simT-1: #the if block only runs if there is a next period to update.
                     income = self.wage_func(sim.k[i,t],t)*sim.h[i,t]
                     sim.a[i,t+1] = (1+par.r)*(sim.a[i,t] + income - sim.c[i,t])
                     sim.k[i,t+1] = sim.k[i,t] + sim.h[i,t]
