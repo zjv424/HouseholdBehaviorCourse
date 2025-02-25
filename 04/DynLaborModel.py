@@ -166,7 +166,7 @@ class DynLaborModelClass(EconModelClass):
         penalty = 0.0
         if cons < 0.0:
             penalty += cons*1_000.0
-            cons = 1.0e-5
+            cons = 1.0e-5 #ændrer consumption til at være et positivt nummer hvis bounds overskrides
         if hours < 0.0:
             penalty += hours*1_000.0
             hours = 0.0
@@ -179,7 +179,7 @@ class DynLaborModelClass(EconModelClass):
         income = self.wage_func(capital,t) * hours
         a_next = (1.0+par.r)*(assets + income - cons)
         k_next = capital + hours
-        V_next_interp = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next)
+        V_next_interp = interp_2d(par.a_grid,par.k_grid,V_next,a_next,k_next) #interpolation 
 
         # e. return value of choice (including penalty)
         return util + par.rho*V_next_interp + penalty
