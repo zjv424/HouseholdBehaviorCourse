@@ -98,30 +98,30 @@ class BufferStockModelClass(EconModelClass):
         
         # b. solve last period
         t = par.T-1
-        sol.c[t,:] = par.m_grid
+        sol.c[t,:] = par.m_grid #her er griddet over ressurser i stedet for assets
         sol.V[t,:] = self.util(sol.c[t,:])
 
         # c. loop backwards [note, the last element, N, in range(N) is not included in the loop due to index starting at 0]
         for t in reversed(range(par.T-1)):
 
             # i. loop over state variable: resources in beginning of period
-            for im,resources in enumerate(par.m_grid):
+            for im,resources in enumerate(par.m_grid): #tager ressurser i hele griddet m 
 
                 # ii. find optimal consumption at this level of resources in this period t.
 
                 # objective function: negative since we minimize
-                obj = lambda c: - self.value_of_choice(c[0],resources,t)  
+                obj = lambda c: - self.value_of_choice(c[0],resources,t)  #obejctive function kigger kun på consumption
 
                 # bounds on consumption
                 lb = 0.000001 # avoid dividing with zero
-                ub = resources
+                ub = resources # det er ikke tilladt at låne
 
                 # call optimizer
                 c_init = np.array(0.5*ub) # initial guess on optimal consumption
-                res = minimize(obj,c_init,bounds=((lb,ub),),method='SLSQP')
+                res = minimize(obj,c_init,bounds=((lb,ub),),method='SLSQP') #da vi kun kan minimerer har vi values of choice funktionen negativt inkoorpereret 
                 
                 # store results
-                sol.c[t,im] = res.x[0]
+                sol.c[t,im] = res.x[0] #indekset er t og im, da vi har en løkke over t og en løkke over im så vi gemmer løsningen i det rigtige element
                 sol.V[t,im] = -res.fun
         
 
@@ -135,22 +135,24 @@ class BufferStockModelClass(EconModelClass):
         util = self.util(cons)
         
         # c. expected continuation value from savings
-        V_next = sol.V[t+1]
+        V_next = sol.V[t+1] #har 1 dimention altså en en dimension array med værdierne for V_next
         assets = resources - cons
         
         # loop over income shocks 
-        EV_next = 0.0
+        EV_next = 0.0 #den forventede værdi initialiseres til 0
         for i_xi,xi in enumerate(par.xi_grid):
             for i_psi,psi in enumerate(par.psi_grid):
                 fac = par.G*par.psi_grid[i_psi] # normalization factor
 
                 # interpolate next period value function for this combination of transitory and permanent income shocks
-                m_next = (1.0+par.r)*assets/fac + par.xi_grid[i_xi]
-                V_next_interp = interp_1d(par.m_grid,V_next,m_next)
+                m_next = (1.0+par.r)*assets/fac + par.xi_grid[i_xi] #m_next har dimension som en scalar. Er kun et nummer
+                V_next_interp = interp_1d(par.m_grid,V_next,m_next) #jeg giver griddet og den associerede værdi og det punkt jeg vil interpolere i
                 V_next_interp = (fac**(1.0-par.rho)) * V_next_interp # normalization factor
 
                 # weight the interpolated value with the likelihood
-                EV_next += V_next_interp*par.xi_weight[i_xi]*par.psi_weight[i_psi]
+                EV_next += V_next_interp*par.xi_weight[i_xi]*par.psi_weight[i_psi] #xi_weight er sandsynlighed. 
+                #tilføjer mere og mere til den forventede værdi 
+                # "+=" betyder at vi tilføjer til den forventede værdi så venstresiden er det vi tilføjer til det tidligere EV_next
 
         # d. return value of choice
         return util + par.beta*EV_next
@@ -172,7 +174,7 @@ class BufferStockModelClass(EconModelClass):
         sim = self.sim
 
         # b. loop over individuals and time
-        for i in range(par.simN):
+        for i in range(par.simN): #we have 1000 individuals
 
             # i. initialize permanent income and normalized assets 
             t = 0
@@ -186,14 +188,14 @@ class BufferStockModelClass(EconModelClass):
             sim.M[i,t] = (1.0+par.r)*sim.A[i,t] + sim.Y[i,t]
             sim.m[i,t] = sim.M[i,t]/sim.P[i,t]
 
-            for t in range(par.simT):
+            for t in range(par.simT): #loop over time periods
                 if t<par.T: # check that simulation does not go further than solution                 
 
                     # iii. interpolate optimal consumption (normalized)
-                    sim.c[i,t] = interp_1d(par.m_grid,sol.c[t],sim.m[i,t])
+                    sim.c[i,t] = interp_1d(par.m_grid,sol.c[t],sim.m[i,t]) #interpolerer forbrug for individ i i tid t hvor vi anvender løsningen for c fra tidligere 
 
                     # iv. Update next-period states
-                    if t<par.simT-1:
+                    if t<par.simT-1: #hvis der er en fremtid skal vi opdatere fremtidige værdier
                         sim.P[i,t+1] = par.G*sim.P[i,t]*sim.psi[i,t+1]
                         sim.Y[i,t+1] = sim.P[i,t+1]*sim.xi[i,t+1]
 
