@@ -28,6 +28,8 @@ class DynHouseholdLaborModelClass(EconModelClass):
 
         par.rho_1 = 0.05 # weight on labor dis-utility of men
         par.rho_2 = 0.05 # weight on labor dis-utility of women
+        par.rho_1n = 0.05 # weight on labor dis
+        par.rho_2n = 0.05 # weight on labor dis
         par.eta = -1.5 # CRRA coefficient
         par.gamma = 2.5 # curvature on labor hours 
 
@@ -54,6 +56,12 @@ class DynHouseholdLaborModelClass(EconModelClass):
         # reform
         par.joint_tax = True
 
+        #childcare subsidies
+
+        # children
+        par.p_birth = 0.1
+        par.Nn = 2 # number of children
+
 
 
     def allocate(self):
@@ -68,9 +76,12 @@ class DynHouseholdLaborModelClass(EconModelClass):
         
         # a. human capital grid
         par.k_grid = nonlinspace(0.0,par.k_max,par.Nk,1.1)
+        
+        # c. number of children grid
+        par.n_grid = np.arange(par.Nn)
 
         # d. solution arrays
-        shape = (par.T,par.Nk,par.Nk)
+        shape = (par.T,par.Nn,par.Nk,par.Nk)
         sol.h1 = np.nan + np.zeros(shape)
         sol.h2 = np.nan + np.zeros(shape)
         sol.V = np.nan + np.zeros(shape)
@@ -81,15 +92,22 @@ class DynHouseholdLaborModelClass(EconModelClass):
         sim.h2 = np.nan + np.zeros(shape)
         sim.k1 = np.nan + np.zeros(shape)
         sim.k2 = np.nan + np.zeros(shape)
+        sim.n = np.zeros(shape,dtype=np.int_)
         
         sim.income1 = np.nan + np.zeros(shape)
         sim.income2 = np.nan + np.zeros(shape)
 
         sim.tax = np.nan + np.zeros(shape)
 
+        # f. draws used to simulate child arrival
+        np.random.seed(9210)
+        sim.draws_uniform = np.random.uniform(size=shape)
+
         # g. initialization
         sim.k1_init = np.zeros(par.simN)
         sim.k2_init = np.zeros(par.simN)
+        sim.n_init = np.zeros(par.simN,dtype=np.int_)
+
 
     ############
     # Solution #
@@ -103,55 +121,68 @@ class DynHouseholdLaborModelClass(EconModelClass):
         
         # c. loop backwards (over all periods)
         for t in reversed(range(par.T)):
-
             # i. loop over state variables: human capital for each household member
-            for i_k1,capital1 in enumerate(par.k_grid):
-                for i_k2,capital2 in enumerate(par.k_grid):
-                    idx = (t,i_k1,i_k2)
-                    
-                    # ii. find optimal consumption and hours at this level of wealth in this period t.
-                    if t==(par.T-1): # last period
-                        obj = lambda x: -self.util(x[0],x[1],capital1,capital2)
+            for i_n,kids in enumerate(par.n_grid):
+                for i_k1,capital1 in enumerate(par.k_grid):
+                    for i_k2,capital2 in enumerate(par.k_grid):
+                        idx = (t,i_n,i_k1,i_k2)
 
-                    else:
-                        obj = lambda x: - self.value_of_choice(x[0],x[1],capital1,capital2,sol.V[t+1])  
+                        # ii. find optimal consumption and hours at this level of wealth in this period t.
+                        if t==(par.T-1): # last period
+                            obj = lambda  x: -self.util(x[0],x[1],capital1,capital2,kids)
 
-                    # call optimizer
-                    bounds = [(0,np.inf) for i in range(2)]
-                    
-                    init_h = np.array([0.1,0.1]) # initial guess
-                    if i_k1>0: #Improving the Initial Guess Based on Nearby Values 
-                        init_h[0] = sol.h1[t,i_k1-1,i_k2]
-                    if i_k2>0: 
-                        init_h[1] = sol.h2[t,i_k1,i_k2-1]
+                        else:
+                            obj = lambda x: - self.value_of_choice(x[0],x[1],capital1,capital2,kids,sol.V[t+1])  
 
-                    res = minimize(obj,init_h,bounds=bounds) 
+                        # call optimizer
+                        bounds = [(0,np.inf) for i in range(2)]
 
-                    # store results
-                    sol.h1[idx] = res.x[0]
-                    sol.h2[idx] = res.x[1]
-                    sol.V[idx] = -res.fun
- 
+                        init_h = np.array([0.1,0.1]) # initial guess
+                        if i_k1>0: #Improving the Initial Guess Based on Nearby Values 
+                            init_h[0] = sol.h1[t,i_n,i_k1-1,i_k2]
+                        if i_k2>0: 
+                            init_h[1] = sol.h2[t,i_n,i_k1,i_k2-1]
 
-    def value_of_choice(self,hours1,hours2,capital1,capital2,V_next): #V_next refers to sol.V[t+1] in the objective function
+                        res = minimize(obj,init_h,bounds=bounds) 
+
+                        # store results
+                        sol.h1[idx] = res.x[0]
+                        sol.h2[idx] = res.x[1]
+                        sol.V[idx] = -res.fun
+    
+
+    def value_of_choice(self,hours1,hours2,capital1,capital2,kids,V_next): #V_next refers to sol.V[t+1] in the objective function
 
         # a. unpack
         par = self.par
 
         # b. current utility
-        util = self.util(hours1,hours2,capital1,capital2)
+        util = self.util(hours1,hours2,capital1,capital2,kids)
         
         # c. continuation value
         k1_next = (1.0-par.delta)*capital1 + hours1
         k2_next = (1.0-par.delta)*capital2 + hours2
-        V_next_interp = interp_2d(par.k_grid,par.k_grid,V_next,k1_next,k2_next)
+        
+        # no birth
+        V_next_no_birth=V_next[kids,:,:]
+        V_next_no_birth_interp=interp_2d(par.k_grid,par.k_grid,V_next_no_birth,k1_next,k2_next)
+
+        #birth
+        if (kids<(par.Nn-1)):
+            V_next_birth=V_next[1,:,:] 
+            V_next_birth_interp=interp_2d(par.k_grid,par.k_grid,V_next_birth,k1_next,k2_next)
+        else:
+            V_next_birth_interp=V_next_no_birth_interp
+
+        #expected value
+        EV_next=par.p_birth*V_next_birth_interp+(1-par.p_birth)*V_next_no_birth_interp
 
         # d. return value of choice
-        return util + par.beta*V_next_interp
+        return util + par.beta*EV_next
 
 
     # relevant functions
-    def consumption(self,hours1,hours2,capital1,capital2):
+    def consumption(self,hours1,hours2,capital1,capital2,kids):
         par = self.par
 
         income1 = self.wage_func(capital1,1) * hours1
@@ -183,14 +214,16 @@ class DynHouseholdLaborModelClass(EconModelClass):
         rate = 1.0 - par.tax_scale*(income**(-par.tax_pow))
         return rate*income
 
-    def util(self,hours1,hours2,capital1,capital2):
+    def util(self,hours1,hours2,capital1,capital2,kids):
         par = self.par
 
-        cons = self.consumption(hours1,hours2,capital1,capital2)
+        cons = self.consumption(hours1,hours2,capital1,capital2,kids)
 
         util_cons = 2*(cons/2)**(1.0+par.eta) / (1.0+par.eta)
-        util_hours1 = par.rho_1*(hours1)**(1.0+par.gamma) / (1.0+par.gamma)
-        util_hours2 = par.rho_2*(hours2)**(1.0+par.gamma) / (1.0+par.gamma)
+        rho1=par.rho_1+par.rho_1n*kids
+        rho2=par.rho_2+par.rho_2n*kids
+        util_hours1 = rho1*(hours1)**(1.0+par.gamma) / (1.0+par.gamma)
+        util_hours2 = rho2*(hours2)**(1.0+par.gamma) / (1.0+par.gamma)
 
         return util_cons - util_hours1 - util_hours2
 
